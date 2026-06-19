@@ -1,0 +1,20 @@
+{
+  "name": "@ampera/mission-control-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for AMPERA Mission Control — read/write strategic org state (tasks, initiatives, procurements, decisions, per-user Cowork state) from Claude",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bin": {
+    "ampera-mission-control-mcp": "./index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}
