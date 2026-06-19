@@ -265,6 +265,126 @@ server.registerTool(
     ),
 );
 
+server.registerTool(
+  "create_initiative",
+  {
+    title: "Create an initiative",
+    description:
+      "Create a new strategic initiative, attributed to the API key's owner. status is one of PROPOSED, ACTIVE, AT_RISK, BLOCKED, COMPLETED, CANCELLED; percentComplete is 0–100. Optionally set the next milestone and target/milestone dates. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new initiative id, url, and a confirmation message.",
+    inputSchema: {
+      name: z.string().min(1).describe("Initiative name"),
+      description: z.string().optional().describe("Full initiative description (optional)"),
+      status: z
+        .enum(["PROPOSED", "ACTIVE", "AT_RISK", "BLOCKED", "COMPLETED", "CANCELLED"])
+        .optional()
+        .describe("Initial status (optional)"),
+      percentComplete: z
+        .number()
+        .min(0)
+        .max(100)
+        .optional()
+        .describe("Percent complete, 0–100 (optional)"),
+      nextMilestone: z.string().optional().describe("Description of the next milestone (optional)"),
+      nextMilestoneDate: z
+        .string()
+        .optional()
+        .describe("Next milestone date, ISO 8601 (optional)"),
+      targetDate: z.string().optional().describe("Target completion date, ISO 8601 (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/initiatives", {
+        name: args.name,
+        description: args.description,
+        status: args.status,
+        percentComplete: args.percentComplete,
+        nextMilestone: args.nextMilestone,
+        nextMilestoneDate: args.nextMilestoneDate,
+        targetDate: args.targetDate,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_initiative",
+  {
+    title: "Update an initiative",
+    description:
+      "Update a strategic initiative. status is one of PROPOSED, ACTIVE, AT_RISK, BLOCKED, COMPLETED, CANCELLED; percentComplete is 0–100. Only the provided fields change. Role-scoped server-side: the server requires LEAD+ ownership or admin and returns a 403 (whose text is surfaced) if the caller is insufficient. Returns the initiative id, url, and a confirmation message.",
+    inputSchema: {
+      id: z.string().describe("Initiative id"),
+      name: z.string().min(1).optional().describe("New name (optional)"),
+      description: z.string().optional().describe("New description (optional)"),
+      status: z
+        .enum(["PROPOSED", "ACTIVE", "AT_RISK", "BLOCKED", "COMPLETED", "CANCELLED"])
+        .optional()
+        .describe("New status (optional)"),
+      percentComplete: z
+        .number()
+        .min(0)
+        .max(100)
+        .optional()
+        .describe("New percent complete, 0–100 (optional)"),
+      nextMilestone: z.string().optional().describe("New next-milestone description (optional)"),
+      nextMilestoneDate: z
+        .string()
+        .optional()
+        .describe("New next milestone date, ISO 8601 (optional)"),
+      targetDate: z
+        .string()
+        .optional()
+        .describe("New target completion date, ISO 8601 (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/initiatives/${encodeURIComponent(args.id)}`, {
+        name: args.name,
+        description: args.description,
+        status: args.status,
+        percentComplete: args.percentComplete,
+        nextMilestone: args.nextMilestone,
+        nextMilestoneDate: args.nextMilestoneDate,
+        targetDate: args.targetDate,
+      }),
+    ),
+);
+
+// ─── Projects ──────────────────────────────────────────────────────────────────
+
+server.registerTool(
+  "create_project",
+  {
+    title: "Create a project",
+    description:
+      "Create a new project, attributed to the API key's owner. Optionally link it to a strategic initiative and set a slug. status is one of PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new project id, url, and a confirmation message.",
+    inputSchema: {
+      name: z.string().min(1).describe("Project name"),
+      slug: z.string().optional().describe("URL slug (optional; auto-derived if omitted)"),
+      initiativeId: z
+        .string()
+        .optional()
+        .describe("Id of the strategic initiative to link this project to (optional)"),
+      description: z.string().optional().describe("Full project description (optional)"),
+      status: z
+        .enum(["PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"])
+        .optional()
+        .describe("Initial status (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/projects", {
+        name: args.name,
+        slug: args.slug,
+        initiativeId: args.initiativeId,
+        description: args.description,
+        status: args.status,
+      }),
+    ),
+);
+
 // ─── Procurements ──────────────────────────────────────────────────────────────
 
 server.registerTool(
@@ -312,6 +432,151 @@ server.registerTool(
       await mcRequest("POST", `/procurements/${encodeURIComponent(args.id)}/advance`, {
         stage: args.stage,
         nextAction: args.nextAction,
+      }),
+    ),
+);
+
+server.registerTool(
+  "create_procurement",
+  {
+    title: "Create a procurement",
+    description:
+      "Create a new procurement-pipeline entry, attributed to the API key's owner. Optionally link a vendor, set the dollar amount, the initial pipeline stage (EVAL, VENDOR_SETUP, LEGAL, PO_APPROVAL, ISSUED, OPERATIONAL, CANCELLED), the next action, and a renewal date. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new procurement id, url, and a confirmation message.",
+    inputSchema: {
+      scope: z.string().min(1).describe("What is being procured (scope / description)"),
+      vendorId: z.string().optional().describe("Id of the vendor to link this procurement to (optional)"),
+      dollarAmount: z.number().optional().describe("Dollar amount of the procurement (optional)"),
+      stage: z
+        .enum([
+          "EVAL",
+          "VENDOR_SETUP",
+          "LEGAL",
+          "PO_APPROVAL",
+          "ISSUED",
+          "OPERATIONAL",
+          "CANCELLED",
+        ])
+        .optional()
+        .describe("Initial pipeline stage (optional)"),
+      nextAction: z.string().optional().describe("Next action to record on the procurement (optional)"),
+      renewalDate: z.string().optional().describe("Renewal date, ISO 8601 (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/procurements", {
+        scope: args.scope,
+        vendorId: args.vendorId,
+        dollarAmount: args.dollarAmount,
+        stage: args.stage,
+        nextAction: args.nextAction,
+        renewalDate: args.renewalDate,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_procurement",
+  {
+    title: "Update a procurement",
+    description:
+      "Update a procurement-pipeline entry's details. Only the provided fields change. Stage changes go through advance_procurement_stage, not this tool. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the procurement id, url, and a confirmation message.",
+    inputSchema: {
+      id: z.string().describe("Procurement id"),
+      scope: z.string().min(1).optional().describe("New scope / description (optional)"),
+      vendorId: z.string().optional().describe("New linked vendor id (optional)"),
+      dollarAmount: z.number().optional().describe("New dollar amount (optional)"),
+      nextAction: z.string().optional().describe("New next action (optional)"),
+      renewalDate: z.string().optional().describe("New renewal date, ISO 8601 (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/procurements/${encodeURIComponent(args.id)}`, {
+        scope: args.scope,
+        vendorId: args.vendorId,
+        dollarAmount: args.dollarAmount,
+        nextAction: args.nextAction,
+        renewalDate: args.renewalDate,
+      }),
+    ),
+);
+
+// ─── Vendors ───────────────────────────────────────────────────────────────────
+
+server.registerTool(
+  "list_vendors",
+  {
+    title: "List vendors",
+    description:
+      "List vendors from the shared vendor directory. Read-only; results are scoped to the caller's role and the server enforces RBAC (a 403 with explanatory text is surfaced if the caller can't view a vendor).",
+    inputSchema: {},
+  },
+  async () => text(await mcRequest("GET", "/vendors")),
+);
+
+server.registerTool(
+  "get_vendor",
+  {
+    title: "Get vendor details",
+    description:
+      "Fetch full detail on one vendor by id, including contacts, contract status, and linked procurements. Role-scoped server-side; a 403 with explanatory text is surfaced if the caller can't view it.",
+    inputSchema: { id: z.string().describe("Vendor id") },
+  },
+  async (args) => text(await mcRequest("GET", `/vendors/${encodeURIComponent(args.id)}`)),
+);
+
+server.registerTool(
+  "create_vendor",
+  {
+    title: "Create a vendor",
+    description:
+      "Create a new vendor in the shared vendor directory, attributed to the API key's owner. contractStatus is one of NONE, PROSPECT, ACTIVE, EXPIRING, EXPIRED, TERMINATED. Optionally set the primary contact. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new vendor id, url, and a confirmation message.",
+    inputSchema: {
+      name: z.string().min(1).describe("Vendor name"),
+      primaryContactName: z.string().optional().describe("Primary contact name (optional)"),
+      primaryContactEmail: z.string().optional().describe("Primary contact email (optional)"),
+      contractStatus: z
+        .enum(["NONE", "PROSPECT", "ACTIVE", "EXPIRING", "EXPIRED", "TERMINATED"])
+        .optional()
+        .describe("Contract status (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/vendors", {
+        name: args.name,
+        primaryContactName: args.primaryContactName,
+        primaryContactEmail: args.primaryContactEmail,
+        contractStatus: args.contractStatus,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_vendor",
+  {
+    title: "Update a vendor",
+    description:
+      "Update a vendor in the shared vendor directory. contractStatus is one of NONE, PROSPECT, ACTIVE, EXPIRING, EXPIRED, TERMINATED. Only the provided fields change. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the vendor id, url, and a confirmation message.",
+    inputSchema: {
+      id: z.string().describe("Vendor id"),
+      name: z.string().min(1).optional().describe("New name (optional)"),
+      primaryContactName: z.string().optional().describe("New primary contact name (optional)"),
+      primaryContactEmail: z.string().optional().describe("New primary contact email (optional)"),
+      contractStatus: z
+        .enum(["NONE", "PROSPECT", "ACTIVE", "EXPIRING", "EXPIRED", "TERMINATED"])
+        .optional()
+        .describe("New contract status (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/vendors/${encodeURIComponent(args.id)}`, {
+        name: args.name,
+        primaryContactName: args.primaryContactName,
+        primaryContactEmail: args.primaryContactEmail,
+        contractStatus: args.contractStatus,
       }),
     ),
 );
@@ -691,6 +956,108 @@ server.registerTool(
   },
   async (args) =>
     text(await mcRequest("GET", `/search?q=${encodeURIComponent(args.query)}`)),
+);
+
+// ─── People (shared directory, role-scoped) ──────────────────────────────────────
+
+server.registerTool(
+  "add_person",
+  {
+    title: "Add a person",
+    description:
+      "Add a person to the shared people directory, attributed to the API key's owner. employmentType is one of FULL_TIME, PART_TIME, CONTRACTOR, ADVISOR, VENDOR; isInternal flags whether they're an internal team member. Optionally set email, role title, start/end dates, and notes. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new person id, url, and a confirmation message.",
+    inputSchema: {
+      name: z.string().min(1).describe("Person's name"),
+      email: z.string().optional().describe("Email address (optional)"),
+      roleTitle: z.string().optional().describe("Role / job title (optional)"),
+      employmentType: z
+        .enum(["FULL_TIME", "PART_TIME", "CONTRACTOR", "ADVISOR", "VENDOR"])
+        .optional()
+        .describe("Employment type (optional)"),
+      startDate: z.string().optional().describe("Start date, ISO 8601 (optional)"),
+      endDate: z.string().optional().describe("End date, ISO 8601 (optional)"),
+      isInternal: z.boolean().optional().describe("Whether the person is an internal team member (optional)"),
+      notes: z.string().optional().describe("Free-text notes (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/people", {
+        name: args.name,
+        email: args.email,
+        roleTitle: args.roleTitle,
+        employmentType: args.employmentType,
+        startDate: args.startDate,
+        endDate: args.endDate,
+        isInternal: args.isInternal,
+        notes: args.notes,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_person",
+  {
+    title: "Update a person",
+    description:
+      "Update a person in the shared people directory. employmentType is one of FULL_TIME, PART_TIME, CONTRACTOR, ADVISOR, VENDOR. Only the provided fields change. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the person id, url, and a confirmation message.",
+    inputSchema: {
+      id: z.string().describe("Person id"),
+      name: z.string().min(1).optional().describe("New name (optional)"),
+      email: z.string().optional().describe("New email address (optional)"),
+      roleTitle: z.string().optional().describe("New role / job title (optional)"),
+      employmentType: z
+        .enum(["FULL_TIME", "PART_TIME", "CONTRACTOR", "ADVISOR", "VENDOR"])
+        .optional()
+        .describe("New employment type (optional)"),
+      startDate: z.string().optional().describe("New start date, ISO 8601 (optional)"),
+      endDate: z.string().optional().describe("New end date, ISO 8601 (optional)"),
+      isInternal: z.boolean().optional().describe("Whether the person is an internal team member (optional)"),
+      notes: z.string().optional().describe("New free-text notes (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/people/${encodeURIComponent(args.id)}`, {
+        name: args.name,
+        email: args.email,
+        roleTitle: args.roleTitle,
+        employmentType: args.employmentType,
+        startDate: args.startDate,
+        endDate: args.endDate,
+        isInternal: args.isInternal,
+        notes: args.notes,
+      }),
+    ),
+);
+
+// ─── Glossary (shared, role-scoped) ──────────────────────────────────────────────
+
+server.registerTool(
+  "add_glossary_term",
+  {
+    title: "Add a glossary term",
+    description:
+      "Add a term to the shared org glossary, attributed to the API key's owner. scope is ORG (org-wide) or DOMAIN (domain-specific). Optionally set a category. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the new term id, url, and a confirmation message.",
+    inputSchema: {
+      term: z.string().min(1).describe("Term or acronym"),
+      definition: z.string().min(1).describe("Canonical definition"),
+      scope: z
+        .enum(["ORG", "DOMAIN"])
+        .optional()
+        .describe("Scope: ORG (org-wide) or DOMAIN (domain-specific) (optional)"),
+      category: z.string().optional().describe("Category for grouping (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("POST", "/glossary", {
+        term: args.term,
+        definition: args.definition,
+        scope: args.scope,
+        category: args.category,
+      }),
+    ),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
