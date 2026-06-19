@@ -111,27 +111,44 @@ server.registerTool(
 
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 
+const TASK_STATUS_VALUES = ["TODO", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "CANCELLED"];
+const TASK_PRIORITY_VALUES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
+
 server.registerTool(
   "list_tasks",
   {
     title: "List tasks",
     description:
-      "List tasks. Defaults to the caller's own tasks; admin/lead callers can widen with mine=false. Optionally filter by status.",
+      "List tasks (cursor-paginated, default 50 / max 200 per page). Defaults to the caller's own tasks; admin/lead callers can widen with mine=false. Filter by status, priority, owner, assignee, or project. Pass `fields` to slim the response and `cursor` (from the previous page's nextCursor) to page through.",
     inputSchema: {
-      status: z
-        .string()
-        .optional()
-        .describe("Filter by task status, e.g. 'open', 'in_progress', 'done'"),
+      status: z.enum(TASK_STATUS_VALUES).optional().describe("Filter by status"),
+      priority: z.enum(TASK_PRIORITY_VALUES).optional().describe("Filter by priority"),
       mine: z
         .boolean()
         .optional()
         .describe("true (default) = only the caller's tasks; false = all visible tasks (admin/lead)"),
+      ownerUserId: z.string().optional().describe("Filter by owner user id"),
+      assigneeUserId: z.string().optional().describe("Filter by assignee user id"),
+      projectId: z.string().optional().describe("Filter by project id"),
+      limit: z.number().int().min(1).max(200).optional().describe("Page size (default 50, max 200)"),
+      cursor: z.string().optional().describe("Pass the previous response's nextCursor to get the next page"),
+      fields: z
+        .array(z.string())
+        .optional()
+        .describe("Return only these task fields (id always included), e.g. ['title','status','priority']"),
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.status) p.set("status", args.status);
+    if (args.priority) p.set("priority", args.priority);
     if (args.mine !== undefined) p.set("mine", String(args.mine));
+    if (args.ownerUserId) p.set("ownerUserId", args.ownerUserId);
+    if (args.assigneeUserId) p.set("assigneeUserId", args.assigneeUserId);
+    if (args.projectId) p.set("projectId", args.projectId);
+    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    if (args.cursor) p.set("cursor", args.cursor);
+    if (args.fields?.length) p.set("fields", args.fields.join(","));
     const qs = p.toString();
     return text(await mcRequest("GET", `/tasks${qs ? `?${qs}` : ""}`));
   },
@@ -152,11 +169,24 @@ server.registerTool(
   {
     title: "Create a task",
     description:
-      "Create a new task, auto-attributed to the API key's owner. Optionally link it to a project and set a due date. Returns the new task id, url, and a confirmation message.",
+      "Create a task. Defaults owner to the API key's user (lead+ may set ownerUserId to file it for someone else); assignee defaults to the owner. Set status/priority/tags on creation so migrated or in-flight work lands correctly on the first call. Returns the new task id, url, and confirmation.",
     inputSchema: {
       title: z.string().min(1).describe("Short task title"),
       description: z.string().optional().describe("Full task description (optional)"),
+      status: z.enum(TASK_STATUS_VALUES).optional().describe("Initial status (default TODO)"),
+      priority: z.enum(TASK_PRIORITY_VALUES).optional().describe("Priority (default MEDIUM)"),
       projectId: z.string().optional().describe("Id of the project to link this task to (optional)"),
+      ownerUserId: z.string().optional().describe("Owner user id (lead+ only if not yourself; default = you)"),
+      assigneeUserId: z.string().optional().describe("Delegate user id (default = owner)"),
+      tags: z
+        .array(z.string())
+        .optional()
+        .describe("Free-form labels, e.g. ['INC-7','Procurement:DGR Systems','Waiting:Jen']"),
+      parentTaskId: z.string().optional().describe("Parent task id for a subtask (optional)"),
+      blockedByTaskIds: z
+        .array(z.string())
+        .optional()
+        .describe("Task ids that block this one (soft-enforced on completion)"),
       dueDate: z
         .string()
         .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -169,7 +199,14 @@ server.registerTool(
       await mcRequest("POST", "/tasks", {
         title: args.title,
         description: args.description,
+        status: args.status,
+        priority: args.priority,
         projectId: args.projectId,
+        ownerUserId: args.ownerUserId,
+        assigneeUserId: args.assigneeUserId,
+        tags: args.tags,
+        parentTaskId: args.parentTaskId,
+        blockedByTaskIds: args.blockedByTaskIds,
         dueDate: args.dueDate,
       }),
     ),
@@ -180,12 +217,21 @@ server.registerTool(
   {
     title: "Update a task",
     description:
-      "Modify a task. Callers can update their own tasks; lead+ can update their team's; admin can update any. Only the provided fields change. Returns the task id, url, and a confirmation message.",
+      "Modify a task. Callers can update their own/assigned tasks; lead+ can update their team's; admin any. Only provided fields change. `tags` and `blockedByTaskIds` replace the whole list. Marking DONE while a blocker is still open is allowed but returns a warning. Returns the task id, url, and confirmation.",
     inputSchema: {
       id: z.string().describe("Task id"),
       title: z.string().min(1).optional().describe("New title (optional)"),
       description: z.string().optional().describe("New description (optional)"),
-      status: z.string().optional().describe("New status, e.g. 'open', 'in_progress', 'done' (optional)"),
+      status: z.enum(TASK_STATUS_VALUES).optional().describe("New status (optional)"),
+      priority: z.enum(TASK_PRIORITY_VALUES).optional().describe("New priority (optional)"),
+      assigneeUserId: z.string().optional().describe("Reassign to this user id (optional)"),
+      projectId: z.string().optional().describe("Re-parent the task to a different project (optional)"),
+      parentTaskId: z.string().optional().describe("Move under a different parent task (optional)"),
+      tags: z.array(z.string()).optional().describe("Replace the task's tag list (optional)"),
+      blockedByTaskIds: z
+        .array(z.string())
+        .optional()
+        .describe("Replace the task's blocker list (optional)"),
       dueDate: z
         .string()
         .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -199,6 +245,12 @@ server.registerTool(
         title: args.title,
         description: args.description,
         status: args.status,
+        priority: args.priority,
+        assigneeUserId: args.assigneeUserId,
+        projectId: args.projectId,
+        parentTaskId: args.parentTaskId,
+        tags: args.tags,
+        blockedByTaskIds: args.blockedByTaskIds,
         dueDate: args.dueDate,
       }),
     ),
@@ -212,6 +264,37 @@ server.registerTool(
     inputSchema: { id: z.string().describe("Task id") },
   },
   async (args) => text(await mcRequest("POST", `/tasks/${encodeURIComponent(args.id)}/complete`)),
+);
+
+server.registerTool(
+  "bulk_update_tasks",
+  {
+    title: "Bulk-update tasks",
+    description:
+      "Apply many task updates in one call — ideal for fixing migration defaults (set status/priority/assignee/tags across dozens of tasks at once). Partial success: each item is attempted independently. Returns { succeeded: [...ids], failed: [{id,error}], warnings: [{id,warning}] }.",
+    inputSchema: {
+      updates: z
+        .array(
+          z.object({
+            id: z.string().describe("Task id to update"),
+            title: z.string().min(1).optional(),
+            description: z.string().optional(),
+            status: z.enum(TASK_STATUS_VALUES).optional(),
+            priority: z.enum(TASK_PRIORITY_VALUES).optional(),
+            assigneeUserId: z.string().optional(),
+            projectId: z.string().optional(),
+            parentTaskId: z.string().optional(),
+            tags: z.array(z.string()).optional(),
+            blockedByTaskIds: z.array(z.string()).optional(),
+            dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          }),
+        )
+        .min(1)
+        .max(200)
+        .describe("List of per-task patches (max 200)"),
+    },
+  },
+  async (args) => text(await mcRequest("PATCH", "/tasks/bulk", { updates: args.updates })),
 );
 
 // ─── Initiatives ───────────────────────────────────────────────────────────────
@@ -320,6 +403,11 @@ server.registerTool(
         .enum(["PROPOSED", "ACTIVE", "AT_RISK", "BLOCKED", "COMPLETED", "CANCELLED"])
         .optional()
         .describe("New status (optional)"),
+      ownerUserId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Reassign owner to this user id; pass null to detach the owner (optional)"),
       percentComplete: z
         .number()
         .min(0)
@@ -343,6 +431,7 @@ server.registerTool(
         name: args.name,
         description: args.description,
         status: args.status,
+        ownerUserId: args.ownerUserId,
         percentComplete: args.percentComplete,
         nextMilestone: args.nextMilestone,
         nextMilestoneDate: args.nextMilestoneDate,
@@ -380,6 +469,48 @@ server.registerTool(
         slug: args.slug,
         initiativeId: args.initiativeId,
         description: args.description,
+        status: args.status,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_project",
+  {
+    title: "Update a project",
+    description:
+      "Update a project — rename, edit description/notes, re-parent an orphan to its initiative (initiativeId), reassign owner, or change status (PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED). Only provided fields change. Role-scoped server-side (LEAD+). Returns the project id, url, and confirmation.",
+    inputSchema: {
+      id: z.string().describe("Project id"),
+      name: z.string().min(1).optional().describe("New name (optional)"),
+      slug: z.string().optional().describe("New URL slug (optional)"),
+      description: z.string().optional().describe("New description (optional)"),
+      notes: z.string().optional().describe("New notes (optional)"),
+      initiativeId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Link to this initiative id; pass null to detach (optional)"),
+      ownerUserId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Reassign owner to this user id; null to detach (optional)"),
+      status: z
+        .enum(["PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"])
+        .optional()
+        .describe("New status (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/projects/${encodeURIComponent(args.id)}`, {
+        name: args.name,
+        slug: args.slug,
+        description: args.description,
+        notes: args.notes,
+        initiativeId: args.initiativeId,
+        ownerUserId: args.ownerUserId,
         status: args.status,
       }),
     ),
@@ -1052,6 +1183,31 @@ server.registerTool(
   async (args) =>
     text(
       await mcRequest("POST", "/glossary", {
+        term: args.term,
+        definition: args.definition,
+        scope: args.scope,
+        category: args.category,
+      }),
+    ),
+);
+
+server.registerTool(
+  "update_glossary_term",
+  {
+    title: "Update a glossary term",
+    description:
+      "Edit an existing glossary term by id — fix or expand the definition, rename the term, change scope (ORG/DOMAIN), or recategorize. Only provided fields change. Role-scoped server-side (CONTRIBUTOR+). Returns the term id, url, and confirmation.",
+    inputSchema: {
+      id: z.string().describe("Glossary term id"),
+      term: z.string().min(1).optional().describe("New term/acronym (optional)"),
+      definition: z.string().min(1).optional().describe("New definition (optional)"),
+      scope: z.enum(["ORG", "DOMAIN"]).optional().describe("New scope (optional)"),
+      category: z.string().nullable().optional().describe("New category; null to clear (optional)"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest("PATCH", `/glossary/${encodeURIComponent(args.id)}`, {
         term: args.term,
         definition: args.definition,
         scope: args.scope,
