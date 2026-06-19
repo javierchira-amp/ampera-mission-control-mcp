@@ -85,7 +85,7 @@ Try: *"What's my Mission Control scan state?"* · *"Log a decision: …"* · *"F
 ## What's exposed
 
 - **42 tools** — reads (dashboard, tasks, initiatives, procurements, risks, scan-state, today, pending-reviews, people/projects/glossary lookups, org search, briefing) and role-scoped writes (tasks, decisions, risks, initiative status, procurement stage, scan-state/today, review items).
-- **6 prompts** — `mc:morning-scan`, `log-decision`, `triage-reviews`, `initiative-status`, `weekly-briefing`, `end-of-day`.
+- **7 prompts** — `mc:morning-scan`, `log-decision`, `triage-reviews`, `initiative-status`, `weekly-briefing`, `end-of-day`, `migrate-from-cowork`.
 - **3 resources** — `mission-control://guide`, `mission-control://me`, `mission-control://glossary`.
 
 Everything is enforced server-side by your role. Revoke a key anytime on the AI Assistant page.

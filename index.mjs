@@ -1360,5 +1360,89 @@ server.registerPrompt(
     ),
 );
 
+server.registerPrompt(
+  "migrate-from-cowork",
+  {
+    title: "Migrate my Cowork work in",
+    description:
+      "Turn the durable work from your Cowork sessions into Mission Control records on the shared dashboards — deduped, role-checked, and confirmed before each write.",
+    argsSchema: {
+      scope: z
+        .string()
+        .optional()
+        .describe(
+          "Narrow the migration to a topic, e.g. 'just my AI initiatives' or 'Q2 procurement' (optional; default = everything)",
+        ),
+      since: z
+        .string()
+        .optional()
+        .describe("Only consider work from this point onward, e.g. 'January' or '2026-04-01' (optional)"),
+    },
+  },
+  (args) => {
+    const scopeLine = args.scope && args.scope.trim()
+      ? `Focus only on: ${args.scope.trim()}.`
+      : "Look across all of our past work together.";
+    const sinceLine = args.since && args.since.trim()
+      ? `Only consider work from ${args.since.trim()} onward.`
+      : "";
+    return promptText(
+      [
+        "Help me migrate my existing work into Mission Control. I've been working in",
+        "Cowork for a while and want the durable items — the ones worth tracking on the",
+        "shared dashboards — to become real Mission Control records. Work in phases, and",
+        "do NOT create anything until I approve that category.",
+        "",
+        "PHASE 1 — Orient.",
+        "- Read the mission-control://me resource to confirm who I am and my role.",
+        "- My role gates what we can create: initiatives, projects, procurements,",
+        "  vendors and people need LEAD or above; glossary needs CONTRIBUTOR or above;",
+        "  tasks, decisions and risks are open to me. If my role is too low for a",
+        "  category, tell me and skip it — don't attempt those writes.",
+        "- Call get_dashboard_summary so you know which dashboard my data feeds.",
+        "",
+        "PHASE 2 — See what's already there, so we never create a duplicate.",
+        "  Call list_initiatives, list_procurements, list_vendors, list_risks,",
+        "  list_tasks (mine=true) and list_pending_reviews, and hold those as the",
+        '  "already in Mission Control" set. Use search_org_knowledge, lookup_person',
+        "  and lookup_glossary to spot-check specific names before proposing them.",
+        "",
+        "PHASE 3 — Mine my Cowork history for durable items.",
+        `  ${scopeLine}${sinceLine ? " " + sinceLine : ""}`,
+        "  Pull out the things that deserve to live in the system of record — not",
+        "  one-off questions or chit-chat. Sort each into exactly one category and the",
+        "  tool that creates it:",
+        "   - Strategic initiative   → create_initiative",
+        "   - Project                 → create_project",
+        "   - Decision already made   → log_decision",
+        "   - Risk                    → file_risk",
+        "   - Vendor                  → create_vendor",
+        "   - Procurement / contract  → create_procurement (create_vendor first if the vendor is new)",
+        "   - Person (team or org)    → add_person",
+        "   - Task / action item      → create_task",
+        "   - Acronym / term          → add_glossary_term",
+        '  Drop anything that already matches the "already in Mission Control" set.',
+        "  For each kept item, note why it qualifies and how confident you are.",
+        "",
+        "PHASE 4 — Show me the plan before touching anything.",
+        "  Present it grouped by category — for each proposed record, the key fields",
+        "  you'd send, marked NEW, DUPLICATE (skipped) or LOW-CONFIDENCE (needs my",
+        "  call). Put the totals at the top. Write nothing yet.",
+        "",
+        "PHASE 5 — Create, one category at a time, only what I approve.",
+        "  When I approve a category, create those records with the mapped tool, one by",
+        "  one, and quote the id and URL each call returns. If a write fails (a 403 for",
+        "  my role, or a validation error), report it and move on — never loop or guess",
+        "  around it.",
+        "",
+        "PHASE 6 — Wrap up.",
+        "  Summarize what was created and which dashboard each item now appears on, then",
+        "  list everything we skipped (duplicates, low-confidence, or blocked by role)",
+        "  so I can follow up.",
+      ].join("\n"),
+    );
+  },
+);
+
 await server.connect(new StdioServerTransport());
 console.error(`ampera-mission-control MCP ready (${BASE})`);
