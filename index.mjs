@@ -795,7 +795,7 @@ server.registerTool(
   {
     title: "Log a decision",
     description:
-      "Append a decision to the formal decision log (append-only / audit-grade), attributed to the API key's owner. Optionally summarize the impact and link related initiatives. Returns the new decision id, url, and a confirmation message.",
+      "Append a decision to the formal decision log (append-only / audit-grade), attributed to the API key's owner. Link it to the entities it affects via relatedEntities so it shows up on those records (a decision can affect several). Returns the new decision id, url, and a confirmation message.",
     inputSchema: {
       title: z.string().min(1).describe("Short decision title, e.g. 'Approved the OZ Digital SOW'"),
       rationale: z.string().min(1).describe("Why the decision was made"),
@@ -803,7 +803,16 @@ server.registerTool(
       relatedInitiatives: z
         .array(z.string())
         .optional()
-        .describe("Ids of initiatives this decision relates to (optional)"),
+        .describe("Ids of initiatives this decision relates to (legacy; prefer relatedEntities)"),
+      relatedEntities: z
+        .array(
+          z.object({
+            type: z.enum(["INITIATIVE", "PROJECT", "PROCUREMENT", "VENDOR"]).describe("Entity kind"),
+            id: z.string().describe("Entity id"),
+          }),
+        )
+        .optional()
+        .describe("Entities this decision affects, e.g. [{type:'VENDOR',id:'...'}] — surfaces on get_vendor/get_initiative/get_procurement (optional)"),
     },
   },
   async (args) =>
@@ -813,6 +822,7 @@ server.registerTool(
         rationale: args.rationale,
         impactSummary: args.impactSummary,
         relatedInitiatives: args.relatedInitiatives,
+        relatedEntities: args.relatedEntities,
       }),
     ),
 );
@@ -877,6 +887,11 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Ids of initiatives this risk relates to (optional)"),
+      affectedEntityType: z
+        .enum(["INITIATIVE", "PROJECT", "PROCUREMENT", "VENDOR"])
+        .optional()
+        .describe("Kind of entity this risk threatens — surfaces the risk on that record (optional)"),
+      affectedEntityId: z.string().optional().describe("Id of the affected entity (pair with affectedEntityType)"),
     },
   },
   async (args) =>
@@ -888,6 +903,8 @@ server.registerTool(
         likelihood: args.likelihood,
         mitigation: args.mitigation,
         relatedInitiatives: args.relatedInitiatives,
+        affectedEntityType: args.affectedEntityType,
+        affectedEntityId: args.affectedEntityId,
       }),
     ),
 );
@@ -921,6 +938,11 @@ server.registerTool(
         .optional()
         .describe("New risk status (optional)"),
       mitigation: z.string().optional().describe("New mitigation (optional)"),
+      affectedEntityType: z
+        .enum(["INITIATIVE", "PROJECT", "PROCUREMENT", "VENDOR"])
+        .optional()
+        .describe("Re-point the risk to the entity it threatens (optional)"),
+      affectedEntityId: z.string().optional().describe("Id of the affected entity (optional)"),
     },
   },
   async (args) =>
@@ -932,6 +954,8 @@ server.registerTool(
         likelihood: args.likelihood,
         status: args.status,
         mitigation: args.mitigation,
+        affectedEntityType: args.affectedEntityType,
+        affectedEntityId: args.affectedEntityId,
       }),
     ),
 );
@@ -1211,6 +1235,7 @@ server.registerTool(
         .enum(["FULL_TIME", "PART_TIME", "CONTRACTOR", "ADVISOR", "VENDOR"])
         .optional()
         .describe("Employment type (optional)"),
+      vendorId: z.string().optional().describe("Link this person to a vendor as a contact (use for VENDOR contacts) (optional)"),
       startDate: z.string().optional().describe("Start date, ISO 8601 (optional)"),
       endDate: z.string().optional().describe("End date, ISO 8601 (optional)"),
       isInternal: z.boolean().optional().describe("Whether the person is an internal team member (optional)"),
@@ -1224,6 +1249,7 @@ server.registerTool(
         email: args.email,
         roleTitle: args.roleTitle,
         employmentType: args.employmentType,
+        vendorId: args.vendorId,
         startDate: args.startDate,
         endDate: args.endDate,
         isInternal: args.isInternal,
@@ -1247,6 +1273,7 @@ server.registerTool(
         .enum(["FULL_TIME", "PART_TIME", "CONTRACTOR", "ADVISOR", "VENDOR"])
         .optional()
         .describe("New employment type (optional)"),
+      vendorId: z.string().optional().describe("Link/relink this person to a vendor as a contact (optional)"),
       startDate: z.string().optional().describe("New start date, ISO 8601 (optional)"),
       endDate: z.string().optional().describe("New end date, ISO 8601 (optional)"),
       isInternal: z.boolean().optional().describe("Whether the person is an internal team member (optional)"),
@@ -1260,6 +1287,7 @@ server.registerTool(
         email: args.email,
         roleTitle: args.roleTitle,
         employmentType: args.employmentType,
+        vendorId: args.vendorId,
         startDate: args.startDate,
         endDate: args.endDate,
         isInternal: args.isInternal,
