@@ -1,0 +1,6 @@
+# Pin line endings so clones on Windows don't show phantom local changes
+# (this repo's index.mjs kept blocking `git pull` with CRLF/LF churn).
+* text=auto eol=lf
+*.mjs text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
