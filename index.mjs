@@ -114,12 +114,25 @@ server.registerTool(
 const TASK_STATUS_VALUES = ["TODO", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "CANCELLED"];
 const TASK_PRIORITY_VALUES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
+// Shared cursor/limit/fields params for every list_* tool (§4.1). Spread into a
+// tool's inputSchema, then call applyPage(searchParams, args) in its handler.
+const PAGE_PARAMS = {
+  limit: z.number().int().min(1).max(200).optional().describe("Page size (default 50, max 200)"),
+  cursor: z.string().optional().describe("Pass the previous response's nextCursor to get the next page"),
+  fields: z.array(z.string()).optional().describe("Return only these fields (id always included) to slim the response"),
+};
+function applyPage(p, args) {
+  if (args.limit !== undefined) p.set("limit", String(args.limit));
+  if (args.cursor) p.set("cursor", args.cursor);
+  if (args.fields?.length) p.set("fields", args.fields.join(","));
+}
+
 server.registerTool(
   "list_tasks",
   {
     title: "List tasks",
     description:
-      "List tasks (cursor-paginated, default 50 / max 200 per page). Defaults to the caller's own tasks; admin/lead callers can widen with mine=false. Filter by status, priority, owner, assignee, or project. Pass `fields` to slim the response and `cursor` (from the previous page's nextCursor) to page through.",
+      "List tasks (cursor-paginated, default 50 / max 200 per page). Defaults to the caller's own tasks; admin/lead callers can widen with mine=false. Filter by status, priority, owner, assignee, project, initiative, tags, due-date window, or archived state. Pass `fields` to slim the response and `cursor` (from the previous page's nextCursor) to page through.",
     inputSchema: {
       status: z.enum(TASK_STATUS_VALUES).optional().describe("Filter by status"),
       priority: z.enum(TASK_PRIORITY_VALUES).optional().describe("Filter by priority"),
@@ -130,12 +143,13 @@ server.registerTool(
       ownerUserId: z.string().optional().describe("Filter by owner user id"),
       assigneeUserId: z.string().optional().describe("Filter by assignee user id"),
       projectId: z.string().optional().describe("Filter by project id"),
-      limit: z.number().int().min(1).max(200).optional().describe("Page size (default 50, max 200)"),
-      cursor: z.string().optional().describe("Pass the previous response's nextCursor to get the next page"),
-      fields: z
-        .array(z.string())
-        .optional()
-        .describe("Return only these task fields (id always included), e.g. ['title','status','priority']"),
+      initiativeId: z.string().optional().describe("Filter by initiative (joins through the task's project)"),
+      tags: z.array(z.string()).optional().describe("Filter by tags — matches any by default"),
+      tagsMatchAll: z.boolean().optional().describe("Require ALL given tags instead of any (default false)"),
+      dueBefore: z.string().optional().describe("Only tasks due on/before this date (ISO 8601)"),
+      dueAfter: z.string().optional().describe("Only tasks due on/after this date (ISO 8601)"),
+      archived: z.boolean().optional().describe("true = only archived tasks; default false = only live tasks"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
@@ -146,9 +160,13 @@ server.registerTool(
     if (args.ownerUserId) p.set("ownerUserId", args.ownerUserId);
     if (args.assigneeUserId) p.set("assigneeUserId", args.assigneeUserId);
     if (args.projectId) p.set("projectId", args.projectId);
-    if (args.limit !== undefined) p.set("limit", String(args.limit));
-    if (args.cursor) p.set("cursor", args.cursor);
-    if (args.fields?.length) p.set("fields", args.fields.join(","));
+    if (args.initiativeId) p.set("initiativeId", args.initiativeId);
+    if (args.tags?.length) p.set("tags", args.tags.join(","));
+    if (args.tagsMatchAll) p.set("tagsMatchAll", "true");
+    if (args.dueBefore) p.set("dueBefore", args.dueBefore);
+    if (args.dueAfter) p.set("dueAfter", args.dueAfter);
+    if (args.archived) p.set("archived", "true");
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/tasks${qs ? `?${qs}` : ""}`));
   },
@@ -305,14 +323,16 @@ server.registerTool(
   "list_initiatives",
   {
     title: "List initiatives",
-    description: "List strategic initiatives. Optionally filter by status.",
+    description: "List strategic initiatives (cursor-paginated). Optionally filter by status.",
     inputSchema: {
       status: z.string().optional().describe("Filter by initiative status (optional)"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.status) p.set("status", args.status);
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/initiatives${qs ? `?${qs}` : ""}`));
   },
@@ -527,14 +547,14 @@ server.registerTool(
     inputSchema: {
       initiativeId: z.string().optional().describe("Only projects under this initiative id (optional)"),
       status: z.string().optional().describe("Filter by status (optional)"),
-      limit: z.number().int().min(1).max(500).optional().describe("Max rows (default 200)"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.initiativeId) p.set("initiativeId", args.initiativeId);
     if (args.status) p.set("status", args.status);
-    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/projects${qs ? `?${qs}` : ""}`));
   },
@@ -560,11 +580,13 @@ server.registerTool(
       "List the procurement pipeline. Optionally filter by stage (e.g. Eval, Vendor Setup, Legal, PO Approval, Issued, Operational).",
     inputSchema: {
       stage: z.string().optional().describe("Filter by pipeline stage (optional)"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.stage) p.set("stage", args.stage);
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/procurements${qs ? `?${qs}` : ""}`));
   },
@@ -686,10 +708,15 @@ server.registerTool(
   {
     title: "List vendors",
     description:
-      "List vendors from the shared vendor directory. Read-only; results are scoped to the caller's role and the server enforces RBAC (a 403 with explanatory text is surfaced if the caller can't view a vendor).",
-    inputSchema: {},
+      "List vendors from the shared vendor directory (cursor-paginated). Read-only; results are scoped to the caller's role and the server enforces RBAC (a 403 with explanatory text is surfaced if the caller can't view a vendor).",
+    inputSchema: { ...PAGE_PARAMS },
   },
-  async () => text(await mcRequest("GET", "/vendors")),
+  async (args) => {
+    const p = new URLSearchParams();
+    applyPage(p, args);
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/vendors${qs ? `?${qs}` : ""}`));
+  },
 );
 
 server.registerTool(
@@ -840,11 +867,13 @@ server.registerTool(
         .enum(["OPEN", "MITIGATED", "ACCEPTED", "CLOSED"])
         .optional()
         .describe("Filter by risk status (optional)"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.status) p.set("status", args.status);
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/risks${qs ? `?${qs}` : ""}`));
   },
@@ -1075,10 +1104,21 @@ server.registerTool(
   {
     title: "List pending review items",
     description:
-      "Return the caller's Pending Review queue (proposed items awaiting approve/reject), ordered by created_at. Replaces TASKS.md's '## Pending Review' section.",
-    inputSchema: {},
+      "Return the caller's Pending Review queue (proposed items awaiting approve/reject), newest first, cursor-paginated. Optionally filter by source or since. Replaces TASKS.md's '## Pending Review' section.",
+    inputSchema: {
+      source: z.string().optional().describe("Filter by source, e.g. 'email', 'calendar', 'manual' (optional)"),
+      since: z.string().optional().describe("Only items created on/after this date, ISO 8601 (optional)"),
+      ...PAGE_PARAMS,
+    },
   },
-  async () => text(await mcRequest("GET", "/pending-reviews")),
+  async (args) => {
+    const p = new URLSearchParams();
+    if (args.source) p.set("source", args.source);
+    if (args.since) p.set("since", args.since);
+    applyPage(p, args);
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/pending-reviews${qs ? `?${qs}` : ""}`));
+  },
 );
 
 server.registerTool(
@@ -1161,13 +1201,13 @@ server.registerTool(
       "Browse the people directory (internal staff, advisors, vendor contacts). Optionally filter by employment type: FULL_TIME, PART_TIME, CONTRACTOR, ADVISOR, VENDOR. For a name/email search use lookup_person instead.",
     inputSchema: {
       employmentType: z.string().optional().describe("Filter by employment type (optional)"),
-      limit: z.number().int().min(1).max(500).optional().describe("Max rows (default 200)"),
+      ...PAGE_PARAMS,
     },
   },
   async (args) => {
     const p = new URLSearchParams();
     if (args.employmentType) p.set("employmentType", args.employmentType);
-    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    applyPage(p, args);
     const qs = p.toString();
     return text(await mcRequest("GET", `/people${qs ? `?${qs}` : ""}`));
   },
@@ -1205,6 +1245,38 @@ server.registerTool(
   },
   async (args) =>
     text(await mcRequest("GET", `/glossary?term=${encodeURIComponent(args.term)}`)),
+);
+
+server.registerTool(
+  "list_glossary_terms",
+  {
+    title: "List glossary terms",
+    description:
+      "Browse the org glossary (cursor-paginated). Optionally filter by category or since (recently added). For a single term use lookup_glossary; for one by id use get_glossary_term.",
+    inputSchema: {
+      category: z.string().optional().describe("Filter by category (optional)"),
+      since: z.string().optional().describe("Only terms added on/after this date, ISO 8601 (optional)"),
+      ...PAGE_PARAMS,
+    },
+  },
+  async (args) => {
+    const p = new URLSearchParams();
+    if (args.category) p.set("category", args.category);
+    if (args.since) p.set("since", args.since);
+    applyPage(p, args);
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/glossary${qs ? `?${qs}` : ""}`));
+  },
+);
+
+server.registerTool(
+  "get_glossary_term",
+  {
+    title: "Get a glossary term by id",
+    description: "Fetch one glossary term by its id, including who defined it.",
+    inputSchema: { id: z.string().describe("Glossary term id") },
+  },
+  async (args) => text(await mcRequest("GET", `/glossary/${encodeURIComponent(args.id)}`)),
 );
 
 server.registerTool(
