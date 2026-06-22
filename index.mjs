@@ -1104,7 +1104,7 @@ server.registerTool(
   {
     title: "List pending review items",
     description:
-      "Return the caller's Pending Review queue (proposed items awaiting approve/reject), newest first, cursor-paginated. Optionally filter by source or since. Replaces TASKS.md's '## Pending Review' section.",
+      "Return the caller's Pending Review queue (proposed items awaiting approve/reject), newest first, cursor-paginated. Optionally filter by source or since. The user can also review/approve these in the app at /reviews (sidebar 'Pending Review'). Replaces TASKS.md's '## Pending Review' section.",
     inputSchema: {
       source: z.string().optional().describe("Filter by source, e.g. 'email', 'calendar', 'manual' (optional)"),
       since: z.string().optional().describe("Only items created on/after this date, ISO 8601 (optional)"),
@@ -1651,7 +1651,9 @@ if a call is refused, it's a permissions answer, not a bug to route around.
   - \`get_today\` / \`update_today\` — today's notes and top-of-mind.
   - \`list_pending_reviews\` / \`propose_review_item\` / \`approve_review_item\` /
     \`reject_review_item\` — the human-in-the-loop queue. Scans **propose**; the user
-    **approves**; approval is what creates a real task.
+    **approves**; approval is what creates a real task. The user can also see and
+    action this queue in the app — point them to the **Pending Review** page at
+    \`/reviews\` (linked in the sidebar and surfaced on their dashboard).
 - **Status & planning.** \`get_dashboard_summary\`, \`get_briefing_data\`,
   \`list_initiatives\` / \`get_initiative\`, \`list_tasks\`, \`list_procurements\`.
 
