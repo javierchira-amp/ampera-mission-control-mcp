@@ -224,6 +224,7 @@ server.registerTool(
       description: z.string().optional().describe("New description (optional)"),
       status: z.enum(TASK_STATUS_VALUES).optional().describe("New status (optional)"),
       priority: z.enum(TASK_PRIORITY_VALUES).optional().describe("New priority (optional)"),
+      ownerUserId: z.string().optional().describe("Reassign ownership to this user id — LEAD+ (optional)"),
       assigneeUserId: z.string().optional().describe("Reassign to this user id (optional)"),
       projectId: z.string().optional().describe("Re-parent the task to a different project (optional)"),
       parentTaskId: z.string().optional().describe("Move under a different parent task (optional)"),
@@ -246,6 +247,7 @@ server.registerTool(
         description: args.description,
         status: args.status,
         priority: args.priority,
+        ownerUserId: args.ownerUserId,
         assigneeUserId: args.assigneeUserId,
         projectId: args.projectId,
         parentTaskId: args.parentTaskId,
@@ -516,6 +518,38 @@ server.registerTool(
     ),
 );
 
+server.registerTool(
+  "list_projects",
+  {
+    title: "List projects",
+    description:
+      "List projects with their initiative, owner, and task count. Optionally filter by initiative or status (PLANNING, ACTIVE, ON_HOLD, COMPLETED, CANCELLED). For a fuzzy name search use lookup_project instead.",
+    inputSchema: {
+      initiativeId: z.string().optional().describe("Only projects under this initiative id (optional)"),
+      status: z.string().optional().describe("Filter by status (optional)"),
+      limit: z.number().int().min(1).max(500).optional().describe("Max rows (default 200)"),
+    },
+  },
+  async (args) => {
+    const p = new URLSearchParams();
+    if (args.initiativeId) p.set("initiativeId", args.initiativeId);
+    if (args.status) p.set("status", args.status);
+    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/projects${qs ? `?${qs}` : ""}`));
+  },
+);
+
+server.registerTool(
+  "get_project",
+  {
+    title: "Get project details",
+    description: "Fetch one project by id with its initiative, owner, and full task list.",
+    inputSchema: { id: z.string().describe("Project id") },
+  },
+  async (args) => text(await mcRequest("GET", `/projects/${encodeURIComponent(args.id)}`)),
+);
+
 // ─── Procurements ──────────────────────────────────────────────────────────────
 
 server.registerTool(
@@ -537,11 +571,21 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_procurement",
+  {
+    title: "Get procurement details",
+    description: "Fetch one procurement by id with its vendor and owner.",
+    inputSchema: { id: z.string().describe("Procurement id") },
+  },
+  async (args) => text(await mcRequest("GET", `/procurements/${encodeURIComponent(args.id)}`)),
+);
+
+server.registerTool(
   "advance_procurement_stage",
   {
     title: "Advance procurement stage",
     description:
-      "Advance a procurement to a stage: EVAL, VENDOR_SETUP, LEGAL, PO_APPROVAL, ISSUED, OPERATIONAL, or CANCELLED. Optionally record the next action. Admin-only server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller isn't an admin. Returns the procurement id, url, and a confirmation message.",
+      "Set a procurement's stage: EVAL, VENDOR_SETUP, LEGAL, PO_APPROVAL, ISSUED, OPERATIONAL, or CANCELLED. Optionally record the next action. Role-scoped server-side: the procurement's owner can move their own; otherwise ADMIN (a 403, whose text is surfaced, is returned if the caller is neither). Returns the procurement id, url, and a confirmation message.",
     inputSchema: {
       id: z.string().describe("Procurement id"),
       stage: z
@@ -611,7 +655,7 @@ server.registerTool(
   {
     title: "Update a procurement",
     description:
-      "Update a procurement-pipeline entry's details. Only the provided fields change. Stage changes go through advance_procurement_stage, not this tool. Role-scoped server-side: the server enforces RBAC and returns a 403 (whose text is surfaced) if the caller's role is insufficient. Returns the procurement id, url, and a confirmation message.",
+      "Update a procurement-pipeline entry's details. Only the provided fields change. Stage changes go through advance_procurement_stage, not this tool. Role-scoped server-side: LEAD+ or the procurement's owner; a 403 (whose text is surfaced) is returned otherwise. Returns the procurement id, url, and a confirmation message.",
     inputSchema: {
       id: z.string().describe("Procurement id"),
       scope: z.string().min(1).optional().describe("New scope / description (optional)"),
@@ -619,6 +663,7 @@ server.registerTool(
       dollarAmount: z.number().optional().describe("New dollar amount (optional)"),
       nextAction: z.string().optional().describe("New next action (optional)"),
       renewalDate: z.string().optional().describe("New renewal date, ISO 8601 (optional)"),
+      ownerUserId: z.string().optional().describe("Reassign owner to this user id (optional)"),
     },
   },
   async (args) =>
@@ -629,6 +674,7 @@ server.registerTool(
         dollarAmount: args.dollarAmount,
         nextAction: args.nextAction,
         renewalDate: args.renewalDate,
+        ownerUserId: args.ownerUserId,
       }),
     ),
 );
@@ -713,6 +759,36 @@ server.registerTool(
 );
 
 // ─── Decisions ─────────────────────────────────────────────────────────────────
+
+server.registerTool(
+  "list_decisions",
+  {
+    title: "List decisions",
+    description:
+      "List logged decisions, newest first (cursor-paginated, default 50 / max 200). Pass `cursor` (the previous response's nextCursor) to page back through the log.",
+    inputSchema: {
+      limit: z.number().int().min(1).max(200).optional().describe("Page size (default 50)"),
+      cursor: z.string().optional().describe("nextCursor from the previous page (optional)"),
+    },
+  },
+  async (args) => {
+    const p = new URLSearchParams();
+    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    if (args.cursor) p.set("cursor", args.cursor);
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/decisions${qs ? `?${qs}` : ""}`));
+  },
+);
+
+server.registerTool(
+  "get_decision",
+  {
+    title: "Get decision details",
+    description: "Fetch one decision by id with its author and supersede chain.",
+    inputSchema: { id: z.string().describe("Decision id") },
+  },
+  async (args) => text(await mcRequest("GET", `/decisions/${encodeURIComponent(args.id)}`)),
+);
 
 server.registerTool(
   "log_decision",
@@ -1051,6 +1127,36 @@ server.registerTool(
   },
   async (args) =>
     text(await mcRequest("GET", `/people?q=${encodeURIComponent(args.query)}`)),
+);
+
+server.registerTool(
+  "list_people",
+  {
+    title: "List people",
+    description:
+      "Browse the people directory (internal staff, advisors, vendor contacts). Optionally filter by employment type: FULL_TIME, PART_TIME, CONTRACTOR, ADVISOR, VENDOR. For a name/email search use lookup_person instead.",
+    inputSchema: {
+      employmentType: z.string().optional().describe("Filter by employment type (optional)"),
+      limit: z.number().int().min(1).max(500).optional().describe("Max rows (default 200)"),
+    },
+  },
+  async (args) => {
+    const p = new URLSearchParams();
+    if (args.employmentType) p.set("employmentType", args.employmentType);
+    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/people${qs ? `?${qs}` : ""}`));
+  },
+);
+
+server.registerTool(
+  "get_person",
+  {
+    title: "Get person details",
+    description: "Fetch one person by id with their manager and linked user account.",
+    inputSchema: { id: z.string().describe("Person id") },
+  },
+  async (args) => text(await mcRequest("GET", `/people/${encodeURIComponent(args.id)}`)),
 );
 
 server.registerTool(

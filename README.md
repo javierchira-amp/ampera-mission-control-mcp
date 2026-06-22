@@ -84,7 +84,7 @@ Try: *"What's my Mission Control scan state?"* · *"Log a decision: …"* · *"F
 
 ## What's exposed
 
-- **45 tools** — reads (dashboard, tasks, initiatives, procurements, risks, scan-state, today, pending-reviews, people/projects/glossary lookups, org search, briefing) and role-scoped writes incl. full create/update for tasks (priority, assignee, tags, subtasks, blockers + bulk updates), initiatives, projects, procurements, vendors, people, decisions, risks, and glossary.
+- **52 tools** — reads (dashboard, tasks, initiatives, procurements, risks, scan-state, today, pending-reviews, full list/get for tasks, projects, initiatives, procurements, vendors, people, decisions, risks; lookups, org search, briefing) and role-scoped writes incl. full create/update for tasks (priority, assignee, tags, subtasks, blockers + bulk updates), initiatives, projects, procurements, vendors, people, decisions, risks, and glossary.
 - **7 prompts** — `mc:morning-scan`, `log-decision`, `triage-reviews`, `initiative-status`, `weekly-briefing`, `end-of-day`, `migrate-from-cowork`.
 - **3 resources** — `mission-control://guide`, `mission-control://me`, `mission-control://glossary`.
 
