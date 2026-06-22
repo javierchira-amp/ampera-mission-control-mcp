@@ -1422,6 +1422,181 @@ server.registerTool(
     ),
 );
 
+// ─── Collaboration & lifecycle (P2 §5) ──────────────────────────────────────────
+
+const COMMENTABLE = ["TASK", "INITIATIVE", "PROJECT", "PROCUREMENT", "VENDOR", "RISK"];
+const ATTACHABLE = ["TASK", "INITIATIVE", "PROCUREMENT", "DECISION"];
+const ARCHIVABLE = ["TASK", "INITIATIVE", "PROJECT", "PROCUREMENT", "VENDOR", "PERSON", "RISK"];
+
+server.registerTool(
+  "list_comments",
+  {
+    title: "List comments",
+    description: "List the comment thread on any entity (task, initiative, project, procurement, vendor, risk), oldest first.",
+    inputSchema: {
+      entityType: z.enum(COMMENTABLE).describe("Entity kind the comments are on"),
+      entityId: z.string().describe("Entity id"),
+    },
+  },
+  async (args) =>
+    text(
+      await mcRequest(
+        "GET",
+        `/comments?entityType=${encodeURIComponent(args.entityType)}&entityId=${encodeURIComponent(args.entityId)}`,
+      ),
+    ),
+);
+
+server.registerTool(
+  "add_comment",
+  {
+    title: "Add a comment",
+    description:
+      "Add a comment to any entity's thread, attributed to the API key's owner (CONTRIBUTOR+). Returns the comment id, url, and confirmation.",
+    inputSchema: {
+      entityType: z.enum(COMMENTABLE).describe("Entity kind to comment on"),
+      entityId: z.string().describe("Entity id"),
+      body: z.string().min(1).describe("Comment text"),
+    },
+  },
+  async (args) =>
+    text(await mcRequest("POST", "/comments", { entityType: args.entityType, entityId: args.entityId, body: args.body })),
+);
+
+server.registerTool(
+  "read_audit_log",
+  {
+    title: "Read the audit log",
+    description:
+      "Read the append-only audit trail (EXECUTIVE+ server-side). Filter by entity, actor, or time. Returns newest-first entries.",
+    inputSchema: {
+      entityType: z.string().optional().describe("Filter by entity type, e.g. 'Task', 'Decision' (optional)"),
+      entityId: z.string().optional().describe("Filter by a specific entity id (optional)"),
+      actorId: z.string().optional().describe("Filter by the acting user id (optional)"),
+      since: z.string().optional().describe("Only entries on/after this date, ISO 8601 (optional)"),
+      limit: z.number().int().min(1).max(200).optional().describe("Max rows (default 50)"),
+    },
+  },
+  async (args) => {
+    const p = new URLSearchParams();
+    for (const k of ["entityType", "entityId", "actorId", "since"]) if (args[k]) p.set(k, args[k]);
+    if (args.limit !== undefined) p.set("limit", String(args.limit));
+    const qs = p.toString();
+    return text(await mcRequest("GET", `/audit-log${qs ? `?${qs}` : ""}`));
+  },
+);
+
+server.registerTool(
+  "list_notifications",
+  {
+    title: "List notifications",
+    description: "List the caller's in-app notifications, newest first. Pass unreadOnly=true for just the unread ones.",
+    inputSchema: {
+      unreadOnly: z.boolean().optional().describe("true = only unread notifications (optional)"),
+    },
+  },
+  async (args) =>
+    text(await mcRequest("GET", `/notifications${args.unreadOnly ? "?unreadOnly=true" : ""}`)),
+);
+
+server.registerTool(
+  "mark_notification_read",
+  {
+    title: "Mark a notification read",
+    description: "Mark one of the caller's notifications as read. Returns a confirmation.",
+    inputSchema: { id: z.string().describe("Notification id") },
+  },
+  async (args) => text(await mcRequest("POST", `/notifications/${encodeURIComponent(args.id)}/read`)),
+);
+
+server.registerTool(
+  "subscribe_to_entity",
+  {
+    title: "Subscribe to an entity",
+    description:
+      "Subscribe the caller to an entity so they're notified of changes — lets Cowork flag something for follow-up programmatically.",
+    inputSchema: {
+      entityType: z.string().describe("Entity kind, e.g. 'INITIATIVE', 'PROCUREMENT', 'VENDOR'"),
+      entityId: z.string().describe("Entity id"),
+    },
+  },
+  async (args) =>
+    text(await mcRequest("POST", "/subscriptions", { entityType: args.entityType, entityId: args.entityId })),
+);
+
+server.registerTool(
+  "unsubscribe_from_entity",
+  {
+    title: "Unsubscribe from an entity",
+    description: "Remove the caller's subscription to an entity.",
+    inputSchema: {
+      entityType: z.string().describe("Entity kind"),
+      entityId: z.string().describe("Entity id"),
+    },
+  },
+  async (args) =>
+    text(await mcRequest("DELETE", "/subscriptions", { entityType: args.entityType, entityId: args.entityId })),
+);
+
+server.registerTool(
+  "update_vendor_scorecard",
+  {
+    title: "Update a vendor scorecard",
+    description:
+      "Set/merge scorecard metrics on a vendor (LEAD+). Pass a flat map of metric → score, e.g. { quality: 8, responsiveness: 7, pricing: 'competitive' }. Merges with any existing scores; surfaced on get_vendor.",
+    inputSchema: {
+      id: z.string().describe("Vendor id"),
+      scores: z.record(z.string(), z.union([z.number(), z.string()])).describe("Metric → score map"),
+    },
+  },
+  async (args) => text(await mcRequest("PATCH", `/vendors/${encodeURIComponent(args.id)}/scorecard`, args.scores)),
+);
+
+server.registerTool(
+  "set_attachments",
+  {
+    title: "Set entity attachments",
+    description:
+      "Attach inline links (SharePoint/OneDrive/etc.) to a task, initiative, procurement, or decision (CONTRIBUTOR+). Replaces the entity's attachment list. Surfaced on the entity's get_*.",
+    inputSchema: {
+      entityType: z.enum(ATTACHABLE).describe("Entity kind"),
+      id: z.string().describe("Entity id"),
+      attachments: z
+        .array(z.object({ label: z.string().describe("Display label"), url: z.string().describe("Link URL") }))
+        .describe("Full replacement list of { label, url }"),
+    },
+  },
+  async (args) =>
+    text(await mcRequest("PATCH", "/attachments", { entityType: args.entityType, id: args.id, attachments: args.attachments })),
+);
+
+server.registerTool(
+  "archive_entity",
+  {
+    title: "Archive an entity",
+    description:
+      "Archive a record (LEAD+) so it drops out of default lists — the soft-delete for duplicates/stale rows. Reversible with restore_entity.",
+    inputSchema: {
+      entityType: z.enum(ARCHIVABLE).describe("Entity kind"),
+      id: z.string().describe("Entity id"),
+    },
+  },
+  async (args) => text(await mcRequest("POST", "/archive", { entityType: args.entityType, id: args.id })),
+);
+
+server.registerTool(
+  "restore_entity",
+  {
+    title: "Restore an archived entity",
+    description: "Un-archive a record (LEAD+) so it reappears in default lists.",
+    inputSchema: {
+      entityType: z.enum(ARCHIVABLE).describe("Entity kind"),
+      id: z.string().describe("Entity id"),
+    },
+  },
+  async (args) => text(await mcRequest("POST", "/restore", { entityType: args.entityType, id: args.id })),
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // RESOURCES — readable context the client's Claude can pull into a session.
 // (registerResource(name, uriString, { title, description, mimeType }, cb))
