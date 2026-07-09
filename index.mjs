@@ -1432,7 +1432,8 @@ server.registerTool(
   "list_comments",
   {
     title: "List comments",
-    description: "List the comment thread on any entity (task, initiative, project, procurement, vendor, risk), oldest first.",
+    description:
+      "List the comment thread on any entity (task, initiative, project, procurement, vendor, risk), oldest first. The same thread is visible to humans in the Comments section on the entity's page in Mission Control.",
     inputSchema: {
       entityType: z.enum(COMMENTABLE).describe("Entity kind the comments are on"),
       entityId: z.string().describe("Entity id"),
@@ -1452,7 +1453,7 @@ server.registerTool(
   {
     title: "Add a comment",
     description:
-      "Add a comment to any entity's thread, attributed to the API key's owner (CONTRIBUTOR+). Returns the comment id, url, and confirmation.",
+      "Add a comment to any entity's thread, attributed to the API key's owner (CONTRIBUTOR+). Returns the comment id and the entity-page URL where the thread is visible (the Comments section on the task/project/initiative/procurement/vendor page; risk comments are web-visible only via the register for now).",
     inputSchema: {
       entityType: z.enum(COMMENTABLE).describe("Entity kind to comment on"),
       entityId: z.string().describe("Entity id"),
